@@ -1,0 +1,180 @@
+#
+#
+# WT32-ETH01
+#    GPIO  0: Modo de reloj para el bus RMII LAN8720 ->debe ser LOW para entrar en modo de arranque -BOOT
+#    GPIO  1: 
+#    GPIO  2: LED estado  ->debe estar flotante o LOW durante el arranque -BOOT
+#    GPIO  3: 
+#    GPIO  4: I2C SDA WM8960
+#    GPIO  5: I2C SCL WM8960 -HIGH durante el reinicio ->debe estar HIGH durante el arranque -BOOT
+#    GPIO  6, 7, 8, 9, 10, Y 11  (SPI chip flash) (6-11 -HIGH durante el reinicio) *
+#    GPIO 12: clock, APA102 fastled_spi
+#    GPIO 13: *
+#    GPIO 14: CLK_I2S WM8960
+#    GPIO 15: data, APA102 fastled_spi
+#    GPIO 16: Power_pin del LAN8720 *
+#    GPIO 17: CS1 (Slave Select) atm90e36
+#    GPIO 18: Datos de gestión LAN8720 *
+#    GPIO 19: TXD[0] bus RMII LAN8720 *
+#    GPIO 21: TX_EN bus RMII LAN8720 *
+#    GPIO 22: TXD[1] bus RMII LAN8720 *
+#    GPIO 23: Control de datos de gestión LAN8720 *
+#    GPIO 25: RXD[0] bus RMII LAN8720 *
+#    GPIO 26: RXD[1] bus RMII LAN8720 *
+#    GPIO 27: CRS_DV bus RMII LAN8720 *
+#    GPIO 32: ADC_I2S WM8960
+#    GPIO 33: LRCL_I2S WM8960
+#    GPIO 34: * (SOLO input) NO soporta Pull-Up
+#    GPIO 35: Int3 (SOLO input) NO soporta Pull-Up
+#    GPIO 36: Int1 (SOLO input) NO soporta Pull-Up
+#    GPIO 39: Int2 (SOLO input) NO soporta Pull-Up 
+# * NO ACCESIBLE EN EL MODULO WT32-ETH01
+#
+# WM8960
+substitutions:
+  I2C_SDA: GPIO04
+  I2C_SCL: GPIO05
+
+esphome:
+  name: musica_esp32
+  friendly_name: musica-WM8960
+  project:
+    name: radioelf.music
+    version: "0.1.beta"
+  includes:
+    - wm8960.h
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+# Servidor WEB
+web_server:
+  port: 80
+
+logger:
+  level: DEBUG 
+
+# Configuración LAN8720 WT32-ETH01 para el bus RMII
+ethernet:
+  type: LAN8720
+  mdc_pin: GPIO23            # Pin de control de datos de gestión
+  mdio_pin: GPIO18           # Pin de datos de gestión
+  clk_mode: GPIO0_IN         # Modo de reloj para el bus RMII
+  phy_addr: 1                # Dirección PHY del dispositivo LAN8720
+  power_pin: GPIO16          # Pin de energía para el dispositivo LAN8720
+  manual_ip:                 # Configuración de IP manual
+    static_ip: 192.168.x.x # Dirección IP estática
+    gateway: 192.168.x.x    # Puerta de enlace
+    subnet: 255.255.255.0    # Máscara de subred
+    dns1: 192.168.x.x      # Servidor DNS primario 
+    dns2: 8.8.8.8            # Servidor DNS secundario (Google DNS)
+  id: ethernet_connection    # Identificador de la conexión Ethernet
+
+# Habilitamos Home Assistant API
+api:
+
+# Habilitamos OTA
+ota:
+
+sensor:
+  - platform: uptime
+    name: "esp32 mediaplayer Uptime"
+  - platform: template
+    id: esp_memory
+    icon: mdi:memory
+    name: Memria libre
+    lambda: return heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024;
+    unit_of_measurement: 'kB'
+    state_class: measurement
+    entity_category: "diagnostic"
+  - platform: template
+    id: sys_esp_temperature
+    name: Internal Temperature
+    lambda: return temperatureRead();
+    unit_of_measurement: °C
+    device_class: TEMPERATURE
+    entity_category: "diagnostic"
+  - platform: uptime
+    name: Uptime
+    id: sys_uptime
+
+binary_sensor:   
+  - platform: status
+    name: "esp32 mediaplayer Estado"
+  - platform: custom
+    lambda: |-
+      auto custom_WM8960 = new Wm8960();
+      App.register_component(custom_WM8960);
+      return {custom_WM8960};
+    binary_sensors:
+      name: "Estado WM8960"
+
+switch:
+  - platform: restart
+    name: "esp32 mediaplayer Restart"
+    
+text_sensor:
+  - platform: version
+    name: "esp32 mediaplayer Version"
+  - platform: ethernet_info
+    ip_address:
+      name: "Dirección IP"
+    dns_address:
+      name: "Dirección DNS"
+
+status_led:
+  pin: 2
+
+light:
+  - platform: fastled_spi
+    chipset: APA102 
+    data_pin: GPIO15 # (pin 19 modulo WM8960)
+    clock_pin: GPIO12 # (pin 23 modulo WM8960)
+    num_leds: 3
+    rgb_order: BGR
+    name: APA102 LED
+    effects:
+      - addressable_rainbow:
+      - flicker:
+      - flicker:
+          name: Efecto parpadeo
+          alpha: 95%
+          intensity: 1.5%
+
+i2c:
+  sda: GPIO04
+  scl: GPIO05
+  scan: false 
+  id: i2c_WM8960
+
+i2s_audio:
+  id: WM8960
+  i2s_lrclk_pin: GPIO33  # LRCLK, sincronización de los canales de audio izquierdo y derecho (pin 35 modulo WM8960)
+  i2s_bclk_pin: GPIO14   # CLK, genera la señal de reloj de bit (pin 12 modulo WM8960)
+
+# Micrófono configurado como dispositivo I²S externo
+microphone:
+  platform: i2s_audio  # Plataforma utilizada: I²S Audio
+  adc_type: external   # Tipo de ADC (convertidor analógico-digital): Externo (el WM8960 se encarga de la conversión)
+  i2s_din_pin: GPIO32  # ADCDAT, Pin I²S utilizado para los datos de entrada del micrófono (pin 38 modulo WM8960)
+  pdm: true            # Habilita el modo PDM (Pulse Density Modulation) para el micrófono
+ 
+media_player:
+  - platform: i2s_audio
+    name: "esp32 mediaplayer player"
+    dac_type: external
+    i2s_dout_pin: GPIO17 #DACDAT (Serial Data), enviará los datos de audio digital al dispositivo (pin 40 modulo WM8960)
+    i2s_audio_id: WM8960
+    i2s_comm_fmt: msb
+    mode: stereo
+    on_state:
+      - logger.log: "Estado actual!"
+    on_play:
+      - logger.log: "Playback Iniciado!"
+    on_pause:
+      - logger.log: "Playback pausa!"
+    on_idle:
+      - logger.log: "Playback finalizado!"
+  
